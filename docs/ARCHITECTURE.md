@@ -1,7 +1,7 @@
 # KiwiTon Platform Architecture
 
-**Status:** Proposed (v1.0)
-**Last updated:** 2026-05-24
+**Status:** In Progress (v1.0)
+**Last updated:** 2026-05-25
 **Owners:** KiwiTon Tech
 
 This document is the single source of truth for how the KiwiTon platform is structured: frontends, backend microservices, data, deployment, and the migration path from the current monolith.
@@ -150,17 +150,19 @@ All services share the same baseline stack so they are interchangeable to operat
 
 ### 5.1 `gateway-svc` — Public API Gateway (port 5001)
 
+**Status:** ✅ Scaffolded
+
 - **Only** service exposed to the internet (`api.kiwiton-tech.com`).
 - Responsibilities:
-  - Terminate JWTs (verify against `auth-svc`'s public key cache).
+  - Terminate JWTs (verify end-user RS256 JWTs against `auth-svc`'s JWKS endpoint).
   - CORS for the three frontend origins only.
-  - Per-IP and per-user **rate limiting** via Redis (`rate-limiter-flexible`).
-  - Request ID injection and structured access logs.
-  - **GraphQL endpoint** (`POST /graphql`) — Apollo Server stitched on top of internal services.
-  - Thin REST passthroughs where useful (`POST /contact` → `email-svc`).
+  - Per-IP and per-user **rate limiting** via Redis (fixed-window implementation).
+  - Request ID injection, client IP detection, and structured access logs.
+  - Thin REST proxies to downstream services (`/contact` → `email-svc`, `/auth/*` → `auth-svc`, etc.).
   - Aggregated `/health` polling each downstream service.
-- Mints short-lived **internal JWTs** (HS256, 60s TTL) when calling internal services.
+- Mints short-lived **internal JWTs** (HS256, 60s TTL) when proxying to internal services.
 - **Does NOT** talk to Postgres, GA4, or SMTP directly.
+- Implementation: Hono + service registry + proxy middleware + rate limiting.
 
 ### 5.2 `auth-svc` — Authentication & Identity (port 5010, internal)
 
@@ -195,15 +197,17 @@ All services share the same baseline stack so they are interchangeable to operat
 
 ### 5.4 `email-svc` — Transactional Email (port 5030, internal)
 
+**Status:** ✅ Scaffolded
+
 - Owns Postgres schema **`email`**: `email_logs`, `contact_submissions`.
 - Lifts `@/Users/zanderbolyanatz/Documents/KTT/Analytic-API/services/emailService.js` as-is (Nodemailer + SMTP).
 - Keeps the **multi-tenant routing** pattern (`CONTACT_ROUTES`, `CONTACT_FROM_NAMES` env vars) — that pattern is correct and stays.
 - Endpoints:
-  - `POST /internal/send` — `{template, to, vars, siteKey}`
-  - `POST /internal/contact` — contact form submission
-  - `GET  /internal/logs` — recent send history (admin only)
-- **Queue:** BullMQ `email-queue` on Redis. Gateway enqueues; this service consumes. Failures retry with exponential backoff and persist to `email_logs`.
-- Templates live in code (`services/email/templates/*.tsx` rendered with `@react-email/render`), not in callers.
+  - `POST /contact` — public contact form submission (rate-limited, site-key verified)
+  - `POST /internal/send` — `{template, to, vars, siteKey}` (internal JWT required)
+- **Queue:** BullMQ `email-queue` on Redis. Jobs enqueued via `/internal/send`; worker processes them. Failures retry with exponential backoff and persist to `email_logs`.
+- Templates live in code (`src/templates/*.ts`), not in callers. Includes: `welcome`, `password-reset`, `report-ready`, `alert`, `contact-admin`, `contact-user-reply`.
+- Implementation: Hono + Nodemailer + BullMQ worker + template registry.
 
 ### 5.5 `reports-svc` — Saved Reports & Exports (port 5040, internal)
 
@@ -461,22 +465,24 @@ jobs:
 
 Ordered lowest-risk → highest-risk. Each step is independently shippable. Folder names below refer to the local working directory layout under `/Users/zanderbolyanatz/Documents/KTT/`, where each folder is a separate git repo destined for the `KiwiTon-Tech` org.
 
-| # | Step | Why | Risk |
-|---|---|---|---|
-| 1 | **Rotate the leaked GA4 service account key** in `KTT-Analytics-Service/ga4-service-account.json`, scrub from git history, move outside the repo | Security | Low |
-| 2 | **Pick one server entrypoint** in `KTT-Analytics-Service/api/`. Keep `server-hono.js`, delete `server.js` and `server-cloudflare.js` | Reduce duplication | Low |
-| 3 | **Push `KTT-.github`, `KTT-Public-Web`, `KTT-Dashboard-Web`, `KTT-Admin-Web` to GitHub** under `KiwiTon-Tech` org with the polyrepo names already on disk | Foundation | Low |
-| 4 | **Set up `KTT-Deploy-Bot` GitHub App + cPanel host** per `CPANEL_DEPLOYMENT.md` | Foundation | Low |
-| 5 | **Create `KTT-DB-Migrations`** with unified Prisma multi-schema. Migrate the dashboard's existing schema in. Delete `KTT-Analytics-Service/db/*.sql` | Single source of truth | Medium |
-| 6 | **De-duplicate `users` / `user_sessions`** between the two old schemas. One-time data migration script | Correctness | Medium |
-| 7 | **Create `KTT-Contracts`** with zod schemas, GraphQL SDL, error classes, JWT helpers. Publish to GitHub Packages | Shared types | Low |
-| 8 | **Drop Sequelize** in `KTT-Analytics-Service`. Switch to the Prisma client from `KTT-DB-Migrations`. Remove `sequelize`, `pg-hstore` from `package.json` | Reduce duplication | Medium |
-| 9 | **Extract `KTT-Email-Service`** as its own repo. BullMQ queue. Gateway calls it via HTTP | Smallest, isolated | Low |
-| 10 | **Extract `KTT-Auth-Service`** as its own repo. Dashboard's NextAuth points at it | Biggest correctness risk | High |
-| 11 | **Trim `KTT-Analytics-Service`** to GA4 + caching only. Add Redis L1 cache | Performance win | Medium |
-| 12 | **Extract `KTT-Gateway`** as its own repo (the thin remainder of the old monolith) — pure routing/auth/rate-limit/GraphQL stitching | Clean separation | Medium |
-| 13 | **Create `KTT-Reports-Service`** and **`KTT-Alerts-Service`** | Feature work | Medium |
-| 14 | **Build out `KTT-Admin-Web`** on top of the now-stable internal APIs | New surface | Low |
+| # | Step | Status | Why | Risk |
+|---|---|---|---|---|
+| 1 | **Rotate the leaked GA4 service account key** in `KTT-Analytics-Service/ga4-service-account.json`, scrub from git history, move outside the repo | 🔲 Pending | Security | Low |
+| 2 | **Pick one server entrypoint** in `KTT-Analytics-Service/api/`. Keep `server-hono.js`, delete `server.js` and `server-cloudflare.js` | 🔲 Pending | Reduce duplication | Low |
+| 3 | **Push all repos to GitHub** under `KiwiTon-Tech` org (`KTT-.github`, `KTT-Public-Web`, `KTT-Dashboard-Web`, `KTT-Admin-Web`, `KTT-Analytics-Service`, `KTT-Email-Service`, `KTT-Gateway`) | ✅ Done | Foundation | Low |
+| 4 | **Set up `KTT-Deploy-Bot` GitHub App + cPanel host** per `CPANEL_DEPLOYMENT.md` | 🔲 Pending | Foundation | Low |
+| 5 | **Create `KTT-DB-Migrations`** with unified Prisma multi-schema. Migrate the dashboard's existing schema in. Delete `KTT-Analytics-Service/db/*.sql` | 🔲 Pending | Single source of truth | Medium |
+| 6 | **De-duplicate `users` / `user_sessions`** between the two old schemas. One-time data migration script | 🔲 Pending | Correctness | Medium |
+| 7 | **Create `KTT-Contracts`** with zod schemas, error classes, JWT helpers. Publish to GitHub Packages | 🔲 Pending | Shared types | Low |
+| 8 | **Wire up local dependency linking** (`npm link` or `pnpm link`) between `KTT-Contracts` ↔ `KTT-DB-Migrations` ↔ services for local development | 🔲 Pending | Developer experience | Low |
+| 9 | **Scaffold `KTT-Email-Service`** — Hono + Nodemailer + BullMQ + templates | ✅ Done | Smallest, isolated | Low |
+| 10 | **Scaffold `KTT-Gateway`** — Hono + proxy + rate limiting + JWT handling | ✅ Done | Public ingress | Medium |
+| 11 | **Scaffold `KTT-Auth-Service`** — user registration, login, JWT issuance, JWKS endpoint | 🔲 Pending | Biggest correctness risk | High |
+| 12 | **Drop Sequelize** in `KTT-Analytics-Service`. Switch to the Prisma client from `KTT-DB-Migrations`. Remove `sequelize`, `pg-hstore` from `package.json` | 🔲 Pending | Reduce duplication | Medium |
+| 13 | **Trim `KTT-Analytics-Service`** to GA4 + caching only. Add Redis L1 cache | 🔲 Pending | Performance win | Medium |
+| 14 | **Scaffold `KTT-Reports-Service`** — saved reports, PDF/CSV exports, BullMQ queue | 🔲 Pending | Feature work | Medium |
+| 15 | **Scaffold `KTT-Alerts-Service`** — threshold monitoring, ops alerts, delivery channels | 🔲 Pending | Feature work | Medium |
+| 16 | **Build out `KTT-Admin-Web`** on top of the now-stable internal APIs | 🔲 Pending | New surface | Low |
 
 ---
 
