@@ -40,10 +40,10 @@ CI on GitHub still runs lint + test + build on every push so broken commits neve
 ```bash
 # from your laptop
 scp KTT-Deploy-Bot.2026-XX-XX.private-key.pem \
-    kiwiton@cpanel-host:/home/kiwiton/.ssh/ktt-deploy-bot.pem
+    ktt@cpanel-host:/home/ktt/.ssh/ktt-deploy-bot.pem
 
 # on the cPanel box
-chmod 600 /home/kiwiton/.ssh/ktt-deploy-bot.pem
+chmod 600 /home/ktt/.ssh/ktt-deploy-bot.pem
 ```
 
 ### 3. Install the token helper
@@ -51,13 +51,13 @@ chmod 600 /home/kiwiton/.ssh/ktt-deploy-bot.pem
 The helper is one bash file that mints an installation token from the App's JWT.
 
 ```bash
-# /home/kiwiton/bin/ktt-token.sh
+# /home/ktt/bin/ktt-token.sh
 #!/usr/bin/env bash
 set -euo pipefail
 
 APP_ID="${KTT_APP_ID:?set KTT_APP_ID}"
 INSTALLATION_ID="${KTT_INSTALLATION_ID:?set KTT_INSTALLATION_ID}"
-PEM="${KTT_APP_KEY:-/home/kiwiton/.ssh/ktt-deploy-bot.pem}"
+PEM="${KTT_APP_KEY:-/home/ktt/.ssh/ktt-deploy-bot.pem}"
 
 now=$(date +%s)
 iat=$((now - 60))
@@ -75,37 +75,37 @@ curl -sS -X POST \
   -H "Authorization: Bearer $jwt" \
   -H "Accept: application/vnd.github+json" \
   "https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens" \
-  | grep -oE '"token":"[^"]+"' | cut -d'"' -f4
+  | grep -oE '"token": *"[^"]+"' | cut -d'"' -f4
 ```
 
 ```bash
-chmod +x /home/kiwiton/bin/ktt-token.sh
+chmod +x /home/ktt/bin/ktt-token.sh
 
 # put these in ~/.bashrc or a sourced env file
 export KTT_APP_ID=123456
 export KTT_INSTALLATION_ID=987654321
-export KTT_APP_KEY=/home/kiwiton/.ssh/ktt-deploy-bot.pem
+export KTT_APP_KEY=/home/ktt/.ssh/ktt-deploy-bot.pem
 ```
 
 Test it:
 
 ```bash
-$ /home/kiwiton/bin/ktt-token.sh
+$ /home/ktt/bin/ktt-token.sh
 ghs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 ### 4. Install the per-service deploy script
 
 ```bash
-# /home/kiwiton/bin/ktt-deploy.sh
+# /home/ktt/bin/ktt-deploy.sh
 #!/usr/bin/env bash
 set -euo pipefail
 
 REPO="${1:?usage: ktt-deploy.sh <REPO> [<REF>]}"
 REF="${2:-main}"
-APP_DIR="/home/kiwiton/apps/${REPO}"
+APP_DIR="/home/ktt/apps/${REPO}"
 
-TOKEN=$(/home/kiwiton/bin/ktt-token.sh)
+TOKEN=$(/home/ktt/bin/ktt-token.sh)
 URL="https://x-access-token:${TOKEN}@github.com/KiwiTon-Tech/${REPO}.git"
 
 if [ ! -d "${APP_DIR}/.git" ]; then
@@ -129,21 +129,21 @@ pm2 save
 ```
 
 ```bash
-chmod +x /home/kiwiton/bin/ktt-deploy.sh
+chmod +x /home/ktt/bin/ktt-deploy.sh
 ```
 
 ### 5. PM2 ecosystem file
 
 ```js
-// /home/kiwiton/apps/ecosystem.config.js
+// /home/ktt/apps/ecosystem.config.js
 module.exports = {
   apps: [
-    { name: 'KTT-Gateway',           cwd: '/home/kiwiton/apps/KTT-Gateway',           script: 'dist/index.js', env_file: '/home/kiwiton/env/gateway.env',   env: { PORT: 5001 } },
-    { name: 'KTT-Auth-Service',      cwd: '/home/kiwiton/apps/KTT-Auth-Service',      script: 'dist/index.js', env_file: '/home/kiwiton/env/auth.env',      env: { PORT: 5010 } },
-    { name: 'KTT-Analytics-Service', cwd: '/home/kiwiton/apps/KTT-Analytics-Service', script: 'dist/index.js', env_file: '/home/kiwiton/env/analytics.env', env: { PORT: 5020 } },
-    { name: 'KTT-Email-Service',     cwd: '/home/kiwiton/apps/KTT-Email-Service',     script: 'dist/index.js', env_file: '/home/kiwiton/env/email.env',     env: { PORT: 5030 } },
-    { name: 'KTT-Reports-Service',   cwd: '/home/kiwiton/apps/KTT-Reports-Service',   script: 'dist/index.js', env_file: '/home/kiwiton/env/reports.env',   env: { PORT: 5040 } },
-    { name: 'KTT-Alerts-Service',    cwd: '/home/kiwiton/apps/KTT-Alerts-Service',    script: 'dist/index.js', env_file: '/home/kiwiton/env/alerts.env',    env: { PORT: 5050 } },
+    { name: 'KTT-Gateway',           cwd: '/home/ktt/apps/KTT-Gateway',           script: 'dist/index.js', env_file: '/home/ktt/env/gateway.env',   env: { PORT: 5001 } },
+    { name: 'KTT-Auth-Service',      cwd: '/home/ktt/apps/KTT-Auth-Service',      script: 'dist/index.js', env_file: '/home/ktt/env/auth.env',      env: { PORT: 5010 } },
+    { name: 'KTT-Analytics-Service', cwd: '/home/ktt/apps/KTT-Analytics-Service', script: 'dist/index.js', env_file: '/home/ktt/env/analytics.env', env: { PORT: 5020 } },
+    { name: 'KTT-Email-Service',     cwd: '/home/ktt/apps/KTT-Email-Service',     script: 'dist/index.js', env_file: '/home/ktt/env/email.env',     env: { PORT: 5030 } },
+    { name: 'KTT-Reports-Service',   cwd: '/home/ktt/apps/KTT-Reports-Service',   script: 'dist/index.js', env_file: '/home/ktt/env/reports.env',   env: { PORT: 5040 } },
+    { name: 'KTT-Alerts-Service',    cwd: '/home/ktt/apps/KTT-Alerts-Service',    script: 'dist/index.js', env_file: '/home/ktt/env/alerts.env',    env: { PORT: 5050 } },
   ],
 };
 ```
@@ -177,9 +177,9 @@ For each `KTT-*` service repo:
 
 1. **First-time deploy** on the cPanel box:
    ```bash
-   /home/kiwiton/bin/ktt-deploy.sh KTT-Auth-Service main
+   /home/ktt/bin/ktt-deploy.sh KTT-Auth-Service main
    ```
-2. **Create the runtime env file** at `/home/kiwiton/env/<service>.env` (mode 600). Never commit this.
+2. **Create the runtime env file** at `/home/ktt/env/<service>.env` (mode 600). Never commit this.
 3. **Add the CI workflow** at `.github/workflows/ci.yml` in the repo:
    ```yaml
    name: CI
@@ -188,7 +188,7 @@ For each `KTT-*` service repo:
      ci:
        uses: KiwiTon-Tech/KTT-.github/.github/workflows/node-cpanel.yml@main
        with:
-         app_path: /home/kiwiton/apps/KTT-Auth-Service
+         app_path: /home/ktt/apps/KTT-Auth-Service
          node_version: "20"
          run_tests: true
        secrets: inherit
@@ -213,7 +213,7 @@ for repo in "${REPOS[@]}"; do
 done
 ```
 
-Runtime secrets (the actual values that services read at startup) live in `/home/kiwiton/env/*.env` on the cPanel box. They are **not** stored in GitHub — only CI-time secrets are.
+Runtime secrets (the actual values that services read at startup) live in `/home/ktt/env/*.env` on the cPanel box. They are **not** stored in GitHub — only CI-time secrets are.
 
 ---
 

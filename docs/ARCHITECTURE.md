@@ -236,7 +236,8 @@ All services share the same baseline stack so they are interchangeable to operat
 ### 6.1 Single Database, Schema per Service
 
 - **One Postgres instance** on the WHM/cPanel host.
-- **One database**: `kiwiton_prod` (and `kiwiton_staging`).
+- **Database name**: `kiwiton_dashboard` (production)
+- **Database user**: `kiwiton_bolyanatz`
 - **Schema per service**:
 
 | Schema | Owner service | Tables |
@@ -252,6 +253,7 @@ All services share the same baseline stack so they are interchangeable to operat
 Each service connects with its own role that has privileges only on its own schema:
 
 ```sql
+-- Connect as kiwiton_bolyanatz (superuser for this database)
 CREATE ROLE auth_svc      LOGIN PASSWORD '...';
 GRANT USAGE   ON SCHEMA auth      TO auth_svc;
 GRANT ALL     ON ALL TABLES IN SCHEMA auth TO auth_svc;
@@ -259,6 +261,27 @@ GRANT ALL     ON ALL TABLES IN SCHEMA auth TO auth_svc;
 ```
 
 This prevents accidental cross-service writes even though they share an instance.
+
+**Connection strings:**
+```bash
+# Gateway (read-only access to auth schema for JWT verification)
+DATABASE_URL="postgresql://gateway_svc:***@localhost:6432/kiwiton_dashboard?schema=auth"
+
+# Auth Service (full access to auth schema)
+DATABASE_URL="postgresql://auth_svc:***@localhost:6432/kiwiton_dashboard?schema=auth"
+
+# Analytics Service (full access to analytics schema)
+DATABASE_URL="postgresql://analytics_svc:***@localhost:6432/kiwiton_dashboard?schema=analytics"
+
+# Email Service (full access to email schema)
+DATABASE_URL="postgresql://email_svc:***@localhost:6432/kiwiton_dashboard?schema=email"
+
+# Reports Service (full access to reports schema)
+DATABASE_URL="postgresql://reports_svc:***@localhost:6432/kiwiton_dashboard?schema=reports"
+
+# Alerts Service (full access to alerts schema)
+DATABASE_URL="postgresql://alerts_svc:***@localhost:6432/kiwiton_dashboard?schema=alerts"
+```
 
 ### 6.3 Prisma Multi-Schema
 
