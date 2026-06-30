@@ -66,6 +66,8 @@ jobs:
             ${{ inputs.working_directory }}/pnpm-lock.yaml
 
       - name: Install dependencies
+        env:
+          GITHUB_NPM_TOKEN: ${{ secrets.KTT_NPM_TOKEN }}
         run: |
           if [ "${{ inputs.package_manager }}" = "pnpm" ]; then
             pnpm install --frozen-lockfile
