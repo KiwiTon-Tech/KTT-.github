@@ -41,12 +41,15 @@ The KiwiTon platform is a **polyrepo** of microservices, frontends, and shared l
 - **[KTT-Auth-Service](https://github.com/KiwiTon-Tech/KTT-Auth-Service)** — Authentication & sessions (port 5010, internal)
 - **[KTT-Analytics-Service](https://github.com/KiwiTon-Tech/KTT-Analytics-Service)** — Google Analytics 4 ingestion (port 5020, internal)
 - **[KTT-Email-Service](https://github.com/KiwiTon-Tech/KTT-Email-Service)** — Transactional email + contact forms (port 5030, internal)
-- **[KTT-Reports-Service](https://github.com/KiwiTon-Tech/KTT-Reports-Service)** — Saved reports & exports (port 5040, internal)
-- **[KTT-Alerts-Service](https://github.com/KiwiTon-Tech/KTT-Alerts-Service)** — Threshold & ops alerts (port 5050, internal)
+- **[KTT-Cigar-Hub](https://github.com/KiwiTon-Tech/KTT-Cigar-Hub)** — Cigar catalog/inventory hub ingesting TORO POS data
+- **[KTT-Inventory-API](https://github.com/KiwiTon-Tech/KTT-Inventory-API)** — Inventory API (Python/APIFlask, early scaffold, port 5050)
+- **[KTT-Reports-Service](https://github.com/KiwiTon-Tech/KTT-Reports-Service)** — Saved reports & exports (port 5040, internal, not yet scaffolded)
+- **[KTT-Alerts-Service](https://github.com/KiwiTon-Tech/KTT-Alerts-Service)** — Threshold & ops alerts (not yet scaffolded)
 
 ### Shared Libraries
-- **[KTT-DB-Migrations](https://github.com/KiwiTon-Tech/KTT-DB-Migrations)** — Single Prisma schema, migrations, seed scripts
-- **[KTT-Contracts](https://github.com/KiwiTon-Tech/KTT-Contracts)** — Shared Zod schemas, error classes, JWT helpers
+- **[KTT-DB](https://github.com/KiwiTon-Tech/KTT-DB)** — Single Prisma schema, migrations, seed scripts
+- **[KTT-Email-SDK](https://github.com/KiwiTon-Tech/KTT-Email-SDK)** — `@kiwiton-tech/email-sdk` client SDK for contact forms / transactional email
+- ~~KTT-Contracts~~ — retired; not present in the current polyrepo
 
 **Only `KTT-Gateway` is exposed publicly.** All other services bind to `127.0.0.1` and are firewalled to localhost.
 
@@ -183,8 +186,8 @@ GitHub Free plan doesn't allow private repos to consume reusable workflows from 
 ### Backend Services
 - **Runtime:** Node.js 20 LTS, ESM
 - **HTTP:** Hono (`@hono/node-server`)
-- **Validation:** Zod (schemas from `KTT-Contracts`)
-- **ORM:** Prisma (schema from `KTT-DB-Migrations`)
+- **Validation:** Zod
+- **ORM:** Prisma (schema from `KTT-DB`)
 - **Logging:** Pino (JSON to stdout, PM2 rotates)
 - **Queue:** BullMQ (Redis-backed)
 
@@ -192,7 +195,7 @@ GitHub Free plan doesn't allow private repos to consume reusable workflows from 
 - **Database:** PostgreSQL (`kiwiton_dashboard`)
 - **Connection Pooling:** PgBouncer (port 6432, transaction mode)
 - **Cache & Queues:** Redis (port 6379)
-- **Migrations:** Prisma (run from `KTT-DB-Migrations` via manual workflow)
+- **Migrations:** Prisma (run from `KTT-DB` via manual workflow)
 
 ---
 
@@ -214,11 +217,13 @@ The platform is currently **in progress** (v1.0). See [docs/ARCHITECTURE.md § 9
 - ✅ Polyrepo setup (all repos pushed to GitHub)
 - ✅ `KTT-Email-Service` scaffolded
 - ✅ `KTT-Gateway` scaffolded
+- ✅ `KTT-DB` unified Prisma schema
+- ✅ `KTT-Auth-Service` scaffolded
+- ✅ `KTT-Cigar-Hub` scaffolded
+- ✅ `KTT-Email-SDK` published
 
 **In Progress:**
-- 🔲 `KTT-Contracts` (shared library)
-- 🔲 `KTT-DB-Migrations` (unified Prisma schema)
-- 🔲 `KTT-Auth-Service` scaffolding
+- 🔲 `KTT-Inventory-API` (early scaffold, Python/APIFlask)
 - 🔲 Local dependency linking setup
 - 🔲 GA4 service account key rotation
 

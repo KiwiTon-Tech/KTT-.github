@@ -86,10 +86,14 @@ The platform is a **polyrepo** under the [`KiwiTon-Tech`](https://github.com/Kiw
 | [`KTT-Auth-Service`](https://github.com/KiwiTon-Tech/KTT-Auth-Service) | Node service | WHM/cPanel | 5010 (internal) |
 | [`KTT-Analytics-Service`](https://github.com/KiwiTon-Tech/KTT-Analytics-Service) | Node service | WHM/cPanel | 5020 (internal) |
 | [`KTT-Email-Service`](https://github.com/KiwiTon-Tech/KTT-Email-Service) | Node service | WHM/cPanel | 5030 (internal) |
-| [`KTT-Reports-Service`](https://github.com/KiwiTon-Tech/KTT-Reports-Service) | Node service | WHM/cPanel | 5040 (internal) |
-| [`KTT-Alerts-Service`](https://github.com/KiwiTon-Tech/KTT-Alerts-Service) | Node service | WHM/cPanel | 5050 (internal) |
-| [`KTT-DB-Migrations`](https://github.com/KiwiTon-Tech/KTT-DB-Migrations) | shared | run from CI | — |
-| [`KTT-Contracts`](https://github.com/KiwiTon-Tech/KTT-Contracts) | shared lib | published to GH Packages | — |
+| [`KTT-Cigar-Hub`](https://github.com/KiwiTon-Tech/KTT-Cigar-Hub) | Node service | WHM/cPanel | internal |
+| [`KTT-Inventory-API`](https://github.com/KiwiTon-Tech/KTT-Inventory-API) | Python/APIFlask service (early scaffold) | WHM/cPanel | 5050 (internal) |
+| [`KTT-Reports-Service`](https://github.com/KiwiTon-Tech/KTT-Reports-Service) | Node service (not yet scaffolded) | WHM/cPanel | 5040 (internal) |
+| [`KTT-Alerts-Service`](https://github.com/KiwiTon-Tech/KTT-Alerts-Service) | Node service (not yet scaffolded) | WHM/cPanel | — |
+| [`KTT-DB`](https://github.com/KiwiTon-Tech/KTT-DB) | shared | run from CI | — |
+| [`KTT-Email-SDK`](https://github.com/KiwiTon-Tech/KTT-Email-SDK) | shared lib (`@kiwiton-tech/email-sdk`) | published to npm | — |
+
+> `KTT-Contracts` has been retired and is no longer part of the polyrepo.
 
 ### Per-repo Layout (typical Node service)
 
@@ -111,11 +115,10 @@ KTT-<Service>/
 ### Cross-Repo Rules
 
 - **Apps** (`KTT-*-Web`) talk only to `KTT-Gateway`. They never call internal services directly.
-- **Services** never import each other's source. Cross-service calls go over HTTP using clients generated from `KTT-Contracts`.
-- **`KTT-DB-Migrations`** is the only repo that owns the Prisma schema and migration files. CI runs `prisma migrate deploy` from this repo before any service that depends on a new schema version is deployed.
-- **`KTT-Contracts`** is published as `@kiwiton-tech/contracts` to GitHub Packages and consumed by every other repo. It contains zod schemas, GraphQL SDL fragments, JWT helpers, error classes, and TypeScript types — nothing runtime-heavy.
-- **No circular dependencies.** `KTT-Contracts` depends on nothing in the org. Services depend only on `KTT-Contracts`. Apps depend only on `KTT-Contracts`.
-- **Versioning** — `KTT-Contracts` follows semver. Breaking changes require a major bump and a coordinated rollout.
+- **Services** never import each other's source. Cross-service calls go over HTTP.
+- **`KTT-DB`** is the only repo that owns the Prisma schema and migration files. CI runs `prisma migrate deploy` from this repo before any service that depends on a new schema version is deployed.
+- **`KTT-Email-SDK`** is published as `@kiwiton-tech/email-sdk` to npm and consumed by client sites (not internal services) that need to submit contact forms via `KTT-Email-Service`.
+- **No circular dependencies.** Services depend only on `KTT-DB`'s generated Prisma client. Apps depend only on the gateway API.
 
 ---
 
@@ -142,8 +145,8 @@ All services share the same baseline stack so they are interchangeable to operat
 
 - **Runtime:** Node.js 20 LTS, ESM.
 - **HTTP framework:** Hono (`@hono/node-server`).
-- **Validation:** Zod (schemas live in `KTT-Contracts`).
-- **ORM:** Prisma client generated from `KTT-DB-Migrations`.
+- **Validation:** Zod.
+- **ORM:** Prisma client generated from `KTT-DB`.
 - **Logging:** Pino → stdout (JSON), PM2 rotates files.
 - **Config:** `dotenv`, `.env` loaded from outside the repo (`/home/<cpaneluser>/env/<service>.env`).
 - **Health:** every service exposes `GET /health` returning `{status, checks: {...}}`.
@@ -165,6 +168,8 @@ All services share the same baseline stack so they are interchangeable to operat
 - Implementation: Hono + service registry + proxy middleware + rate limiting.
 
 ### 5.2 `auth-svc` — Authentication & Identity (port 5010, internal)
+
+**Status:** ✅ Scaffolded — [`KTT-Auth-Service`](https://github.com/KiwiTon-Tech/KTT-Auth-Service)
 
 - Owns Postgres schema **`auth`**: `users`, `sessions`, `oauth_tokens`, `password_resets`.
 - Endpoints:
@@ -285,7 +290,7 @@ DATABASE_URL="postgresql://alerts_svc:***@localhost:6432/kiwiton_dashboard?schem
 
 ### 6.3 Prisma Multi-Schema
 
-Single `KTT-DB-Migrations/schema.prisma`:
+Single `KTT-DB/schema.prisma`:
 
 ```prisma
 generator client {
@@ -320,9 +325,9 @@ model AnalyticsCache {
 
 ### 6.4 Migrations
 
-- `prisma migrate deploy` runs from `KTT-DB-Migrations` via a manual GitHub Actions workflow only.
+- `prisma migrate deploy` runs from `KTT-DB` via a manual GitHub Actions workflow only.
 - **No service runs migrations at boot.**
-- Migration history committed to `KTT-DB-Migrations/migrations/`.
+- Migration history committed to `KTT-DB/migrations/`.
 - The hand-written SQL in `KTT-Analytics-Service/db/schema-postgres.sql` and `KTT-Analytics-Service/db/schema.sql` is **deleted** once Prisma is the source of truth.
 
 ### 6.5 Connection Pooling
@@ -393,7 +398,7 @@ model AnalyticsCache {
 
 ### 7.7 Error Handling
 
-- Shared error classes in `KTT-Contracts/src/errors.ts`: `BadRequestError`, `UnauthorizedError`, `ForbiddenError`, `NotFoundError`, `ConflictError`, `RateLimitError`, `UpstreamError`, `InternalError`.
+- Shared error classes (`BadRequestError`, `UnauthorizedError`, `ForbiddenError`, `NotFoundError`, `ConflictError`, `RateLimitError`, `UpstreamError`, `InternalError`) are implemented per-service pending a future shared library.
 - Every service maps these to consistent HTTP status codes via a Hono middleware.
 - Gateway translates internal errors to GraphQL errors with stable codes.
 
@@ -471,16 +476,15 @@ jobs:
 
 ### 8.4 Database Migrations
 
-- `KTT-DB-Migrations` is the only repo that owns the Prisma schema.
+- `KTT-DB` is the only repo that owns the Prisma schema.
 - A separate manual workflow (`gh workflow run`) on that repo runs `prisma migrate deploy` against staging or production.
 - Service deploys assume the schema is already in the right state. **Never** auto-migrate from a service's startup.
 
 ### 8.5 Release Order for a Schema-Affecting Change
 
-1. PR `KTT-Contracts` (if API surface changes), version-bump, publish.
-2. PR `KTT-DB-Migrations` with the new migration. Merge and run the migration workflow against staging, verify, then production.
-3. PR each affected service to consume the new contracts version. Merge and pull each onto cPanel (lowest-level service first: `KTT-Auth-Service`, then `KTT-Gateway` last).
-4. PR each affected app. Merge — Cloudflare Pages deploys automatically.
+1. PR `KTT-DB` with the new migration. Merge and run the migration workflow against staging, verify, then production.
+2. PR each affected service to consume the new schema. Merge and pull each onto cPanel (lowest-level service first: `KTT-Auth-Service`, then `KTT-Gateway` last).
+3. PR each affected app. Merge — Cloudflare Pages deploys automatically.
 
 ---
 
@@ -494,18 +498,19 @@ Ordered lowest-risk → highest-risk. Each step is independently shippable. Fold
 | 2 | **Pick one server entrypoint** in `KTT-Analytics-Service/api/`. Keep `server-hono.js`, delete `server.js` and `server-cloudflare.js` | 🔲 Pending | Reduce duplication | Low |
 | 3 | **Push all repos to GitHub** under `KiwiTon-Tech` org (`KTT-.github`, `KTT-Public-Web`, `KTT-Dashboard-Web`, `KTT-Admin-Web`, `KTT-Analytics-Service`, `KTT-Email-Service`, `KTT-Gateway`) | ✅ Done | Foundation | Low |
 | 4 | **Set up `KTT-Deploy-Bot` GitHub App + cPanel host** per `CPANEL_DEPLOYMENT.md` | 🔲 Pending | Foundation | Low |
-| 5 | **Create `KTT-DB-Migrations`** with unified Prisma multi-schema. Migrate the dashboard's existing schema in. Delete `KTT-Analytics-Service/db/*.sql` | 🔲 Pending | Single source of truth | Medium |
+| 5 | **Create `KTT-DB`** with unified Prisma multi-schema. Migrate the dashboard's existing schema in. Delete `KTT-Analytics-Service/db/*.sql` | ✅ Done | Single source of truth | Medium |
 | 6 | **De-duplicate `users` / `user_sessions`** between the two old schemas. One-time data migration script | 🔲 Pending | Correctness | Medium |
-| 7 | **Create `KTT-Contracts`** with zod schemas, error classes, JWT helpers. Publish to GitHub Packages | 🔲 Pending | Shared types | Low |
-| 8 | **Wire up local dependency linking** (`npm link` or `pnpm link`) between `KTT-Contracts` ↔ `KTT-DB-Migrations` ↔ services for local development | 🔲 Pending | Developer experience | Low |
+| 7 | **Scaffold `KTT-Email-SDK`** — `@kiwiton-tech/email-sdk` client SDK for contact forms | ✅ Done | Shared client library | Low |
+| 8 | **Scaffold `KTT-Cigar-Hub`** — TORO POS catalog/inventory ingestion + public read API | ✅ Done | New product line | Medium |
 | 9 | **Scaffold `KTT-Email-Service`** — Hono + Nodemailer + BullMQ + templates | ✅ Done | Smallest, isolated | Low |
 | 10 | **Scaffold `KTT-Gateway`** — Hono + proxy + rate limiting + JWT handling | ✅ Done | Public ingress | Medium |
-| 11 | **Scaffold `KTT-Auth-Service`** — user registration, login, JWT issuance, JWKS endpoint | 🔲 Pending | Biggest correctness risk | High |
-| 12 | **Drop Sequelize** in `KTT-Analytics-Service`. Switch to the Prisma client from `KTT-DB-Migrations`. Remove `sequelize`, `pg-hstore` from `package.json` | 🔲 Pending | Reduce duplication | Medium |
-| 13 | **Trim `KTT-Analytics-Service`** to GA4 + caching only. Add Redis L1 cache | 🔲 Pending | Performance win | Medium |
-| 14 | **Scaffold `KTT-Reports-Service`** — saved reports, PDF/CSV exports, BullMQ queue | 🔲 Pending | Feature work | Medium |
-| 15 | **Scaffold `KTT-Alerts-Service`** — threshold monitoring, ops alerts, delivery channels | 🔲 Pending | Feature work | Medium |
-| 16 | **Build out `KTT-Admin-Web`** on top of the now-stable internal APIs | 🔲 Pending | New surface | Low |
+| 11 | **Scaffold `KTT-Auth-Service`** — user registration, login, JWT issuance, JWKS endpoint | ✅ Done | Biggest correctness risk | High |
+| 12 | **Scaffold `KTT-Inventory-API`** — Python/APIFlask service | 🔲 Pending (early scaffold) | Feature work | Medium |
+| 13 | **Drop Sequelize** in `KTT-Analytics-Service`. Switch to the Prisma client from `KTT-DB`. Remove `sequelize`, `pg-hstore` from `package.json` | 🔲 Pending | Reduce duplication | Medium |
+| 14 | **Trim `KTT-Analytics-Service`** to GA4 + caching only. Add Redis L1 cache | 🔲 Pending | Performance win | Medium |
+| 15 | **Scaffold `KTT-Reports-Service`** — saved reports, PDF/CSV exports, BullMQ queue | 🔲 Pending | Feature work | Medium |
+| 16 | **Scaffold `KTT-Alerts-Service`** — threshold monitoring, ops alerts, delivery channels | 🔲 Pending | Feature work | Medium |
+| 17 | **Build out `KTT-Admin-Web`** on top of the now-stable internal APIs | 🔲 Pending | New surface | Low |
 
 ---
 

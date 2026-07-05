@@ -204,7 +204,7 @@ GitHub Free can't share secrets across private repos at the org level. Seed each
 ```bash
 # Adjust the secret list per service
 SECRETS=(INTERNAL_JWT_SECRET DATABASE_URL REDIS_URL)
-REPOS=(KTT-Gateway KTT-Auth-Service KTT-Analytics-Service KTT-Email-Service KTT-Reports-Service KTT-Alerts-Service KTT-DB-Migrations KTT-Contracts)
+REPOS=(KTT-Gateway KTT-Auth-Service KTT-Analytics-Service KTT-Email-Service KTT-Cigar-Hub KTT-Inventory-API KTT-Reports-Service KTT-Alerts-Service KTT-DB)
 
 for repo in "${REPOS[@]}"; do
   for s in "${SECRETS[@]}"; do

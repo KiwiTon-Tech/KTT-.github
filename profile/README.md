@@ -48,13 +48,25 @@ KTT-Analytics-Service
 KTT-Email-Service
 ```
 
-[KTT-Reports-Service](https://github.com/KiwiTon-Tech/KTT-Reports-Service) — saved reports, scheduled runs, PDF/CSV exports.
+[KTT-Cigar-Hub](https://github.com/KiwiTon-Tech/KTT-Cigar-Hub) — cigar catalog/inventory hub ingesting TORO POS data, serving downstream storefronts.
+
+```
+KTT-Cigar-Hub
+```
+
+[KTT-Inventory-API](https://github.com/KiwiTon-Tech/KTT-Inventory-API) — inventory API (Python/APIFlask, early scaffold).
+
+```
+KTT-Inventory-API
+```
+
+[KTT-Reports-Service](https://github.com/KiwiTon-Tech/KTT-Reports-Service) — saved reports, scheduled runs, PDF/CSV exports. Not yet scaffolded.
 
 ```
 KTT-Reports-Service
 ```
 
-[KTT-Alerts-Service](https://github.com/KiwiTon-Tech/KTT-Alerts-Service) — threshold alerts (user) and ops alerts (team).
+[KTT-Alerts-Service](https://github.com/KiwiTon-Tech/KTT-Alerts-Service) — threshold alerts (user) and ops alerts (team). Not yet scaffolded.
 
 ```
 KTT-Alerts-Service
@@ -62,16 +74,16 @@ KTT-Alerts-Service
 
 ### Shared
 
-[KTT-DB-Migrations](https://github.com/KiwiTon-Tech/KTT-DB-Migrations) — single Prisma schema, migrations, seed scripts. Run from CI.
+[KTT-DB](https://github.com/KiwiTon-Tech/KTT-DB) — single Prisma schema, migrations, seed scripts. Run from CI.
 
 ```
-KTT-DB-Migrations
+KTT-DB
 ```
 
-[KTT-Contracts](https://github.com/KiwiTon-Tech/KTT-Contracts) — zod schemas, GraphQL SDL, JWT helpers, error classes shared across services.
+[KTT-Email-SDK](https://github.com/KiwiTon-Tech/KTT-Email-SDK) — `@kiwiton-tech/email-sdk` client SDK for contact forms and transactional email.
 
 ```
-KTT-Contracts
+KTT-Email-SDK
 ```
 
 ## Deployment Model
