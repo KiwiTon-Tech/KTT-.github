@@ -117,14 +117,16 @@ else
 fi
 
 cd "$APP_DIR"
-if [ -f package-lock.json ]; then npm ci --omit=dev; fi
-if [ -f pnpm-lock.yaml   ]; then pnpm install --prod --frozen-lockfile; fi
+# NODE_ENV=development for install+build so devDependencies (e.g. typescript)
+# are installed even though the host's default NODE_ENV is production —
+# `npm ci` respects NODE_ENV and silently omits devDependencies otherwise.
+NODE_ENV=development npm ci
+NODE_ENV=development npm run build --if-present || true
+npm prune --omit=dev
 
-# Build if a build script exists
-npm run build --if-present || true
-
-# Reload PM2 process by repo name
-pm2 reload "$REPO" || pm2 start ecosystem.config.js --only "$REPO"
+# Use `restart`, not `reload`, in fork mode — `reload` can race on the port
+# and throw EADDRINUSE if the old process hasn't released it yet.
+pm2 restart "$REPO" || pm2 start /home/ktt/apps/ecosystem.config.cjs --only "$REPO"
 pm2 save
 ```
 
@@ -132,18 +134,47 @@ pm2 save
 chmod +x /home/ktt/bin/ktt-deploy.sh
 ```
 
+> **If a deploy still shows `EADDRINUSE` or a stale env var (wrong `PORT`,
+> wrong `DATABASE_URL`) after this script runs:** PM2's saved process dump
+> can carry over stale env from a previous run or even a different service.
+> Do a clean restart: `pm2 delete <REPO>` then
+> `pm2 start /home/ktt/apps/ecosystem.config.cjs --only <REPO>`, and set any
+> known-correct values explicitly in that service's `env` block in
+> `ecosystem.config.cjs` (see below) so they can't be overridden by a stale
+> dump or the shell's inherited environment.
+
 ### 5. PM2 ecosystem file
 
+> **Actual production file is `ecosystem.config.cjs` (CommonJS extension),
+> not `.js`** — and the working services use `script: 'node'` +
+> `args: '--env-file <path> dist/index.js'` rather than `env_file`, since
+> `--env-file` is a native Node.js flag (Node 20+) and doesn't require any
+> extra PM2 config. Any var that has previously come from a stale PM2 dump
+> (commonly `PORT` or `DATABASE_URL`) should be pinned explicitly in that
+> app's `env` block so PM2 sets it directly before spawning the process,
+> overriding anything inherited from the shell or a prior dump.
+
 ```js
-// /home/ktt/apps/ecosystem.config.js
+// /home/ktt/apps/ecosystem.config.cjs
 module.exports = {
   apps: [
-    { name: 'KTT-Gateway',           cwd: '/home/ktt/apps/KTT-Gateway',           script: 'dist/index.js', env_file: '/home/ktt/env/gateway.env',   env: { PORT: 5001 } },
-    { name: 'KTT-Auth-Service',      cwd: '/home/ktt/apps/KTT-Auth-Service',      script: 'dist/index.js', env_file: '/home/ktt/env/auth.env',      env: { PORT: 5010 } },
-    { name: 'KTT-Analytics-Service', cwd: '/home/ktt/apps/KTT-Analytics-Service', script: 'dist/index.js', env_file: '/home/ktt/env/analytics.env', env: { PORT: 5020 } },
-    { name: 'KTT-Email-Service',     cwd: '/home/ktt/apps/KTT-Email-Service',     script: 'dist/index.js', env_file: '/home/ktt/env/email.env',     env: { PORT: 5030 } },
-    { name: 'KTT-Reports-Service',   cwd: '/home/ktt/apps/KTT-Reports-Service',   script: 'dist/index.js', env_file: '/home/ktt/env/reports.env',   env: { PORT: 5040 } },
-    { name: 'KTT-Alerts-Service',    cwd: '/home/ktt/apps/KTT-Alerts-Service',    script: 'dist/index.js', env_file: '/home/ktt/env/alerts.env',    env: { PORT: 5050 } },
+    { name: 'KTT-Gateway',           cwd: '/home/ktt/apps/KTT-Gateway',           script: 'node', args: '--env-file /home/ktt/env/gateway.env dist/index.js' },
+    { name: 'KTT-Auth-Service',      cwd: '/home/ktt/apps/KTT-Auth-Service',      script: 'node', args: '--env-file /home/ktt/env/auth.env dist/index.js' },
+    {
+      name: 'KTT-Analytics-Service',
+      cwd: '/home/ktt/apps/KTT-Analytics-Service',
+      script: 'node',
+      args: '--env-file /home/ktt/env/analytics.env dist/index.js',
+      // Pinned explicitly: a stale PM2 dump previously carried over
+      // PORT=5030 and another service's DATABASE_URL, overriding --env-file.
+      env: {
+        PORT: '5020',
+        DATABASE_URL: 'postgresql://analytics_svc:<url-encoded-password>@127.0.0.1:5432/kiwiton_dashboard?schema=analytics',
+      },
+    },
+    { name: 'KTT-Email-Service',     cwd: '/home/ktt/apps/KTT-Email-Service',     script: 'node', args: '--env-file /home/ktt/env/email.env dist/index.js' },
+    { name: 'KTT-Reports-Service',   cwd: '/home/ktt/apps/KTT-Reports-Service',   script: 'node', args: '--env-file /home/ktt/env/reports.env dist/index.js' },
+    { name: 'KTT-Alerts-Service',    cwd: '/home/ktt/apps/KTT-Alerts-Service',    script: 'node', args: '--env-file /home/ktt/env/alerts.env dist/index.js' },
   ],
 };
 ```
@@ -165,9 +196,27 @@ All other service ports are firewalled to `127.0.0.1` only via CSF.
 
 ### 7. PostgreSQL + Redis
 
-- Create the Postgres database (`kiwiton_prod`) and per-service roles described in `ARCHITECTURE.md` §6.
-- Install PgBouncer (transaction mode, `127.0.0.1:6432`).
+- Create the Postgres database (`kiwiton_dashboard`) and per-service roles described in `ARCHITECTURE.md` §6 / `KTT-DB/README.md`.
+- PgBouncer is **not** currently installed — services connect directly to `127.0.0.1:5432`. (Original plan called for PgBouncer on `6432`; revisit if connection pooling becomes a bottleneck.)
 - Install Redis (`127.0.0.1:6379`, password-protected).
+- **Check `pg_hba.conf` before assuming GRANTs are the problem.** cPanel's
+  default config (`/var/lib/pgsql/data/pg_hba.conf`) commonly ships with a
+  `samerole` rule:
+  ```
+  host samerole all  127.0.0.1   255.255.255.255   md5
+  ```
+  `samerole` only allows a role to connect to a database whose name matches
+  a role it's a member of. Per-service roles (`analytics_svc`, `auth_svc`,
+  etc.) are **not** members of a role named `kiwiton_dashboard`, so they're
+  rejected at the auth layer — before any `GRANT` is even checked. Prisma
+  surfaces this as a generic `P1010 "denied access on the database"`, which
+  looks identical to a missing-GRANT error. Add an explicit rule (as root)
+  and reload:
+  ```bash
+  sudo bash -c 'echo "host    kiwiton_dashboard    analytics_svc,auth_svc,email_svc,reports_svc,alerts_svc,gateway_svc    127.0.0.1/32    md5" >> /var/lib/pgsql/data/pg_hba.conf'
+  sudo -u postgres pg_ctl reload -D /var/lib/pgsql/data
+  ```
+  Verify directly with `psql -h 127.0.0.1 -U <svc> -d kiwiton_dashboard -c "SELECT 1;"` before debugging GRANTs.
 
 ---
 
@@ -223,6 +272,10 @@ Runtime secrets (the actual values that services read at startup) live in `/home
 |---|---|
 | `ktt-token.sh` returns empty | App private key path wrong, or App ID / Installation ID env vars missing. |
 | `git clone` 403 | The App isn't installed on that repo, or the token expired (>1 h since mint). |
-| `pm2 reload` says process not found | First-time deploy — use `pm2 start ecosystem.config.js --only <name>` once. |
-| Service starts then crashes | Missing env file or wrong path in `ecosystem.config.js`. Check `pm2 logs <name>`. |
+| `pm2 restart`/`reload` says process not found | First-time deploy — use `pm2 start /home/ktt/apps/ecosystem.config.cjs --only <name>` once. |
+| Service starts then crashes | Missing env file or wrong path in `ecosystem.config.cjs`. Check `pm2 logs <name> --err --lines 20 --nostream`. If the log is empty despite repeated restarts, run the exact `node --env-file ... dist/index.js` command manually to see the raw crash. |
+| `EADDRINUSE` on the service's own port | Stale PM2 dump or a leftover process still holding the port. Do a clean `pm2 delete <name>` + `pm2 start ... --only <name>` instead of `restart`/`reload`. |
+| Wrong `PORT` / `DATABASE_URL` after deploy (`pm2 env <id>` shows an unexpected value) | PM2's dumped env carried over a stale value (sometimes from a *different* service). Pin the correct value explicitly in that app's `env` block in `ecosystem.config.cjs`, then `pm2 delete` + `pm2 start` (not `restart`). |
+| `tsc: command not found` during deploy | Host's global `NODE_ENV=production` makes `npm ci` skip devDependencies (including `typescript`). `ktt-deploy.sh` explicitly sets `NODE_ENV=development` for the install/build steps — confirm that override is present. |
+| Prisma `P1010 "denied access on the database"` even though GRANTs look correct | Check `pg_hba.conf`'s `samerole` rule — see Part 1 §7 above. This is the most common root cause on this host and is easy to mistake for a GRANT problem. |
 | Apache 502 on `api.kiwiton-tech.com` | Gateway not running or listening on wrong port. `pm2 status` and `curl 127.0.0.1:5001/health`. |
