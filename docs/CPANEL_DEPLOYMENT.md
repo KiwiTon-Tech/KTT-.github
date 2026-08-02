@@ -117,12 +117,26 @@ else
 fi
 
 cd "$APP_DIR"
-# NODE_ENV=development for install+build so devDependencies (e.g. typescript)
-# are installed even though the host's default NODE_ENV is production —
-# `npm ci` respects NODE_ENV and silently omits devDependencies otherwise.
-NODE_ENV=development npm ci
-NODE_ENV=development npm run build --if-present || true
-npm prune --omit=dev
+
+if [ -f requirements.txt ]; then
+  # Python service: ensure the virtualenv exists and install dependencies.
+  if [ ! -d .venv ]; then
+    /opt/alt/python311/bin/python3.11 -m venv .venv
+  fi
+  .venv/bin/pip install --upgrade pip setuptools wheel
+  .venv/bin/pip install -r requirements.txt
+elif [ -f package.json ]; then
+  # Node service: NODE_ENV=development for install+build so devDependencies
+  # (e.g. typescript) are installed even though the host's default NODE_ENV
+  # is production — `npm ci` respects NODE_ENV and silently omits
+  # devDependencies otherwise.
+  NODE_ENV=development npm ci
+  NODE_ENV=development npm run build --if-present || true
+  npm prune --omit=dev
+else
+  echo "No requirements.txt or package.json found in $APP_DIR" >&2
+  exit 1
+fi
 
 # Use `restart`, not `reload`, in fork mode — `reload` can race on the port
 # and throw EADDRINUSE if the old process hasn't released it yet.
@@ -175,6 +189,7 @@ module.exports = {
     { name: 'KTT-Email-Service',     cwd: '/home/ktt/apps/KTT-Email-Service',     script: 'node', args: '--env-file /home/ktt/env/email.env dist/index.js' },
     { name: 'KTT-Reports-Service',   cwd: '/home/ktt/apps/KTT-Reports-Service',   script: 'node', args: '--env-file /home/ktt/env/reports.env dist/index.js' },
     { name: 'KTT-Alerts-Service',    cwd: '/home/ktt/apps/KTT-Alerts-Service',    script: 'node', args: '--env-file /home/ktt/env/alerts.env dist/index.js' },
+    { name: 'KTT-Inventory-API',   cwd: '/home/ktt/apps/KTT-Inventory-API',   script: '/home/ktt/apps/KTT-Inventory-API/.venv/bin/python', args: '-m gunicorn -b 127.0.0.1:5050 --workers 2 --timeout 60 wsgi:app', env: { APP_ENV: 'production', HOST: '127.0.0.1', PORT: '5050' } },
   ],
 };
 ```
@@ -196,7 +211,7 @@ All other service ports are firewalled to `127.0.0.1` only via CSF.
 
 ### 7. PostgreSQL + Redis
 
-- Create the Postgres database (`kiwiton_dashboard`) and per-service roles described in `ARCHITECTURE.md` §6 / `KTT-DB/README.md`.
+- Create the Postgres database (`kiwiton_dashboard`) and per-service roles described in `ARCHITECTURE.md` §6 / `KTT-DB/README.md`. The Inventory API uses a separate `ktt_toro_prod` database with a `ktt_toro_owner` role.
 - PgBouncer is **not** currently installed — services connect directly to `127.0.0.1:5432`. (Original plan called for PgBouncer on `6432`; revisit if connection pooling becomes a bottleneck.)
 - Install Redis (`127.0.0.1:6379`, password-protected).
 - **Check `pg_hba.conf` before assuming GRANTs are the problem.** cPanel's
@@ -213,10 +228,11 @@ All other service ports are firewalled to `127.0.0.1` only via CSF.
   looks identical to a missing-GRANT error. Add an explicit rule (as root)
   and reload:
   ```bash
-  sudo bash -c 'echo "host    kiwiton_dashboard    analytics_svc,auth_svc,email_svc,reports_svc,alerts_svc,gateway_svc    127.0.0.1/32    md5" >> /var/lib/pgsql/data/pg_hba.conf'
+  sudo bash -c 'echo "host    kiwiton_dashboard    analytics_svc,auth_svc,email_svc,reports_svc,alerts_svc,gateway_svc,inventory_svc    127.0.0.1/32    md5" >> /var/lib/pgsql/data/pg_hba.conf'
+  sudo bash -c 'echo "host    ktt_toro_prod        ktt_toro_owner    127.0.0.1/32    md5" >> /var/lib/pgsql/data/pg_hba.conf'
   sudo -u postgres pg_ctl reload -D /var/lib/pgsql/data
   ```
-  Verify directly with `psql -h 127.0.0.1 -U <svc> -d kiwiton_dashboard -c "SELECT 1;"` before debugging GRANTs.
+  Verify directly with `psql -h 127.0.0.1 -U <svc> -d <database> -c "SELECT 1;"` before debugging GRANTs.
 
 ---
 
