@@ -71,11 +71,13 @@ sig=$(printf '%s.%s' "$header_b64" "$payload_b64" \
       | openssl base64 -A | tr '+/' '-_' | tr -d '=')
 jwt="$header_b64.$payload_b64.$sig"
 
-curl -sS -X POST \
+token=$(curl -sS -X POST \
   -H "Authorization: Bearer $jwt" \
   -H "Accept: application/vnd.github+json" \
   "https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens" \
-  | grep -oE '"token": *"[^"]+"' | cut -d'"' -f4
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+echo "$token"
 ```
 
 ```bash
@@ -86,6 +88,18 @@ export KTT_APP_ID=123456
 export KTT_INSTALLATION_ID=987654321
 export KTT_APP_KEY=/home/ktt/.ssh/ktt-deploy-bot.pem
 ```
+
+### 3a. Remove stale Git credential helpers
+
+If the repo was previously configured with a credential helper that no longer exists (for example one owned by another user such as `/home/mycigarbutler/scripts/github-app-creds.sh`), remove it so Git uses the HTTPS URL with the minted token:
+
+```bash
+cd /home/ktt/apps/KTT-Inventory-API
+git config --local --unset credential.helper 2>/dev/null || true
+git config --local --unset-all credential.helper 2>/dev/null || true
+```
+
+Repeat for each deployed repo.
 
 Test it:
 
@@ -287,6 +301,8 @@ Runtime secrets (the actual values that services read at startup) live in `/home
 | Symptom | Likely cause |
 |---|---|
 | `ktt-token.sh` returns empty | App private key path wrong, or App ID / Installation ID env vars missing. |
+| `github-app-creds.sh: Permission denied` or errors referencing another user's home directory | Stale Git credential helper remains in the repo/global Git config. Remove it (see Part 1 §3a). |
+| `git clone`/`git fetch` still asks for a password after token helper is set | Git credential helper is still configured locally or globally. Unset it, or set the remote URL directly with the token. |
 | `git clone` 403 | The App isn't installed on that repo, or the token expired (>1 h since mint). |
 | `pm2 restart`/`reload` says process not found | First-time deploy — use `pm2 start /home/ktt/apps/ecosystem.config.cjs --only <name>` once. |
 | Service starts then crashes | Missing env file or wrong path in `ecosystem.config.cjs`. Check `pm2 logs <name> --err --lines 20 --nostream`. If the log is empty despite repeated restarts, run the exact `node --env-file ... dist/index.js` command manually to see the raw crash. |
